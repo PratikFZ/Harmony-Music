@@ -36,6 +36,7 @@ class ListWidget extends StatelessWidget with RemoveSongFromPlaylistMixin {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
+      if (!isCompleteList) return const SizedBox.shrink();
       return Expanded(
         child: Center(
           child: Text(
@@ -154,7 +155,7 @@ class ListWidget extends StatelessWidget with RemoveSongFromPlaylistMixin {
               for (dynamic items in (albums[index].artists).sublist(1)) {
                 artistName = "${artistName + items['name']},";
               }
-            // ignore: empty_catches
+              // ignore: empty_catches
             } catch (e) {}
             artistName = artistName.length > 16
                 ? artistName.substring(0, 16)

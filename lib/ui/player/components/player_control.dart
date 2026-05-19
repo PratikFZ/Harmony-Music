@@ -5,6 +5,9 @@ import 'package:ionicons/ionicons.dart';
 import 'package:widget_marquee/widget_marquee.dart';
 
 import '/ui/player/components/animated_play_button.dart';
+import '/ui/screens/JamSession/jam_session_controller.dart';
+import '/ui/screens/JamSession/jam_session_host_screen.dart';
+import '/ui/screens/JamSession/jam_session_join_screen.dart';
 import '../player_controller.dart';
 
 class PlayerControlWidget extends StatelessWidget {
@@ -87,6 +90,10 @@ class PlayerControlWidget extends StatelessWidget {
                           color: Theme.of(context).textTheme.titleMedium!.color,
                         ))),
               ),
+              SizedBox(
+                width: 45,
+                child: _jamButton(context),
+              ),
             ],
           ),
           const SizedBox(
@@ -128,7 +135,11 @@ class PlayerControlWidget extends StatelessWidget {
                                 .withOpacity(0.2),
                       ))),
               _previousButton(playerController, context),
-              const CircleAvatar(radius: 35, child: AnimatedPlayButton(key: Key("playButton"),)),
+              const CircleAvatar(
+                  radius: 35,
+                  child: AnimatedPlayButton(
+                    key: Key("playButton"),
+                  )),
               _nextButton(playerController, context),
               Obx(() {
                 return IconButton(
@@ -149,6 +160,67 @@ class PlayerControlWidget extends StatelessWidget {
         ]);
   }
 
+  Widget _jamButton(BuildContext context) {
+    final ctrl = Get.isRegistered<JamSessionController>()
+        ? Get.find<JamSessionController>()
+        : null;
+    final isActive = ctrl != null && ctrl.state.value == JamState.connected;
+    return IconButton(
+      icon: Icon(
+        Icons.people,
+        color: isActive
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).textTheme.titleMedium!.color,
+      ),
+      tooltip: 'Jam Session',
+      onPressed: () => _showJamSheet(context),
+    );
+  }
+
+  void _showJamSheet(BuildContext context) {
+    Get.bottomSheet(
+      Container(
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Jam Session', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(
+              'Listen to the same music in sync — no server needed.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
+            ListTile(
+              leading:
+                  const CircleAvatar(child: Icon(Icons.broadcast_on_personal)),
+              title: const Text('Start a session'),
+              subtitle: const Text('Share a QR code with friends'),
+              onTap: () {
+                Get.back();
+                Get.to(() => const JamSessionHostScreen());
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.qr_code_scanner)),
+              title: const Text('Join a session'),
+              subtitle: const Text('Scan the host\'s QR code'),
+              onTap: () {
+                Get.back();
+                Get.to(() => const JamSessionJoinScreen());
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _previousButton(
       PlayerController playerController, BuildContext context) {

@@ -39,104 +39,115 @@ class SeparateTabItemWidget extends StatelessWidget {
     final searchResController = Get.isRegistered<SearchResultScreenController>()
         ? Get.find<SearchResultScreenController>()
         : null;
-    return Padding(
-      padding: EdgeInsets.only(top: topPadding, left: 5),
-      child: Column(
-        children: [
-          if (!hideTitle)
-            SizedBox(
-              height: 30,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    title.toLowerCase().removeAllWhitespace.tr,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  isCompleteList
-                      ? const SizedBox.shrink()
-                      : TextButton(
-                          onPressed: () {
-                            searchResController!.viewAllCallback(title);
-                          },
-                          child: Text("viewAll".tr,
-                              style:
-                                  Theme.of(Get.context!).textTheme.titleSmall))
-                ],
-              ),
-            ),
-          isCompleteList
-              ? Obx(() => SortWidget(
-                    tag: "${title}_$artistControllerTag",
-                    screenController: artistController,
-                    isAdditionalOperationRequired: artistController != null &&
-                        (title == "Songs" || title == "Videos"),
-                    isSearchFeatureRequired: artistController != null,
-                    titleLeftPadding: 9,
-                    itemCountTitle:
-                        "${isResultWidget ? (searchResController?.separatedResultContent[title] ?? []).length : (artistController?.sepataredContent[title] != null ? artistController?.sepataredContent[title]['results'] : []).length} ${"items".tr}",
-                    requiredSortTypes: buildSortTypeSet(
-                        title == 'Albums' || title == "Singles",
-                        title == "Songs" || title == "Videos"),
-                    onSort: (type, ascending) {
-                      isResultWidget
-                          ? searchResController!.onSort(type, ascending, title)
-                          : artistController?.onSort(type, ascending, title);
-                    },
-                    onSearch: artistController?.onSearch,
-                    onSearchClose: artistController?.onSearchClose,
-                    onSearchStart: artistController?.onSearchStart,
-                    startAdditionalOperation:
-                        artistController?.startAdditionalOperation,
-                    selectAll: artistController?.selectAll,
-                    performAdditionalOperation:
-                        artistController?.performAdditionalOperation,
-                    cancelAdditionalOperation:
-                        artistController?.cancelAdditionalOperation,
-                  ))
-              : const SizedBox.shrink(),
-          isCompleteList
-              ? isResultWidget
-                  ? GetX<SearchResultScreenController>(builder: (controller) {
-                      if (controller.isSeparatedResultContentFetced.isTrue) {
-                        return ListWidget(
-                          controller.separatedResultContent[title],
-                          title,
-                          isCompleteList,
-                          scrollController: scrollController,
-                        );
-                      } else {
-                        return const Expanded(
-                            child: Center(child: LoadingIndicator()));
-                      }
-                    })
-                  : (artistController!.isArtistContentFetced.isTrue
-                      ? Obx(() =>
-                          (artistController.additionalOperationMode.value ==
-                                  OperationMode.none
-                              ? ListWidget(
-                                  items,
-                                  title,
-                                  isCompleteList,
-                                  isArtistSongs: true,
-                                  artist: artistController.artist_,
-                                  scrollController: scrollController,
-                                )
-                              : ModificationList(
-                                  mode: artistController
-                                      .additionalOperationMode.value,
-                                  screenController: artistController,
-                                )))
-                      : const Expanded(
-                          child: Center(child: LoadingIndicator())))
-              : ListWidget(
-                  items,
-                  title,
-                  isCompleteList,
-                  scrollController: scrollController,
+    return LayoutBuilder(builder: (_, constraints) {
+      final content = Padding(
+        padding: EdgeInsets.only(top: topPadding, left: 5),
+        child: Column(
+          children: [
+            if (!hideTitle)
+              SizedBox(
+                height: 30,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      title.toLowerCase().removeAllWhitespace.tr,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    isCompleteList
+                        ? const SizedBox.shrink()
+                        : TextButton(
+                            onPressed: () {
+                              searchResController!.viewAllCallback(title);
+                            },
+                            child: Text("viewAll".tr,
+                                style: Theme.of(Get.context!)
+                                    .textTheme
+                                    .titleSmall))
+                  ],
                 ),
-        ],
-      ),
-    );
+              ),
+            isCompleteList
+                ? Obx(() => SortWidget(
+                      tag: "${title}_$artistControllerTag",
+                      screenController: artistController,
+                      isAdditionalOperationRequired: artistController != null &&
+                          (title == "Songs" || title == "Videos"),
+                      isSearchFeatureRequired: artistController != null,
+                      titleLeftPadding: 9,
+                      itemCountTitle:
+                          "${isResultWidget ? (searchResController?.separatedResultContent[title] ?? []).length : (artistController?.sepataredContent[title] != null ? artistController?.sepataredContent[title]['results'] : []).length} ${"items".tr}",
+                      requiredSortTypes: buildSortTypeSet(
+                          title == 'Albums' || title == "Singles",
+                          title == "Songs" || title == "Videos"),
+                      onSort: (type, ascending) {
+                        isResultWidget
+                            ? searchResController!
+                                .onSort(type, ascending, title)
+                            : artistController?.onSort(type, ascending, title);
+                      },
+                      onSearch: artistController?.onSearch,
+                      onSearchClose: artistController?.onSearchClose,
+                      onSearchStart: artistController?.onSearchStart,
+                      startAdditionalOperation:
+                          artistController?.startAdditionalOperation,
+                      selectAll: artistController?.selectAll,
+                      performAdditionalOperation:
+                          artistController?.performAdditionalOperation,
+                      cancelAdditionalOperation:
+                          artistController?.cancelAdditionalOperation,
+                    ))
+                : const SizedBox.shrink(),
+            isCompleteList
+                ? isResultWidget
+                    ? GetX<SearchResultScreenController>(builder: (controller) {
+                        if (controller.isSeparatedResultContentFetced.isTrue) {
+                          return ListWidget(
+                            controller.separatedResultContent[title],
+                            title,
+                            isCompleteList,
+                            scrollController: scrollController,
+                          );
+                        } else {
+                          return const Expanded(
+                              child: Center(child: LoadingIndicator()));
+                        }
+                      })
+                    : (artistController!.isArtistContentFetced.isTrue
+                        ? Obx(() =>
+                            (artistController.additionalOperationMode.value ==
+                                    OperationMode.none
+                                ? ListWidget(
+                                    items,
+                                    title,
+                                    isCompleteList,
+                                    isArtistSongs: true,
+                                    artist: artistController.artist_,
+                                    scrollController: scrollController,
+                                  )
+                                : ModificationList(
+                                    mode: artistController
+                                        .additionalOperationMode.value,
+                                    screenController: artistController,
+                                  )))
+                        : const Expanded(
+                            child: Center(child: LoadingIndicator())))
+                : ListWidget(
+                    items,
+                    title,
+                    isCompleteList,
+                    scrollController: scrollController,
+                  ),
+          ],
+        ),
+      );
+      if (!constraints.hasBoundedHeight && isCompleteList) {
+        return SizedBox(
+          height: MediaQuery.sizeOf(context).height,
+          child: content,
+        );
+      }
+      return content;
+    });
   }
 }

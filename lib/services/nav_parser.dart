@@ -500,11 +500,10 @@ List<dynamic> parsePlaylistItems(List<dynamic> results,
         'browseId'
       ]);
       videoId = creditId?.split("MPTC")[1];
-      
     }
 
-    if(isAlbum){
-      // Contains track number and total tracks 
+    if (isAlbum) {
+      // Contains track number and total tracks
       trackDetails = data?["index"] != null
           ? "${nav(data, ['index', 'runs', 0, 'text'])}/${results.length}"
           : null;
@@ -991,15 +990,22 @@ dynamic parseContentList(results, Function parseFunc) {
 }
 
 Map<String, dynamic> parseChartsItemBrowseId(dynamic result) {
-  final title = nav(result,["musicTwoRowItemRenderer","title","runs",0,"text"]);
-  final browseId = nav(result,
-      ["musicTwoRowItemRenderer","title","runs",0,"navigationEndpoint","browseEndpoint","browseId"]);
+  final title =
+      nav(result, ["musicTwoRowItemRenderer", "title", "runs", 0, "text"]);
+  final browseId = nav(result, [
+    "musicTwoRowItemRenderer",
+    "title",
+    "runs",
+    0,
+    "navigationEndpoint",
+    "browseEndpoint",
+    "browseId"
+  ]);
   if (title.contains('Trending')) {
     return {'title': "Trending", 'browseId': browseId};
   } else if (title.contains('Daily Top')) {
     return {'title': "Top Music Videos", 'browseId': browseId};
-  }
-  else{
+  } else {
     return {'title': title, 'browseId': browseId};
   }
 }

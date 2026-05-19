@@ -167,6 +167,54 @@ class PipedServices extends GetxService {
     }
     return [];
   }
+
+  /// Searches YouTube Music via a Piped instance.
+  ///
+  /// [filter] can be 'music_songs', 'music_videos', 'music_albums',
+  /// 'music_playlists', or 'music_artists'. Defaults to 'music_songs'.
+  /// Uses the user's configured Piped instance when logged in, otherwise
+  /// falls back to the default public Piped instance.
+  Future<List<MediaItem>> searchSongs(String query,
+      {String filter = 'music_songs'}) async {
+    const String defaultPipedUrl = "https://pipedapi.kavin.rocks";
+    final baseUrl = _isLoggedIn ? _insApiUrl : defaultPipedUrl;
+    try {
+      final response = await _dio.get(
+        "$baseUrl/search",
+        queryParameters: {"q": query, "filter": filter},
+      );
+      if (response.statusCode == 200 && response.data['items'] != null) {
+        final items = response.data['items'] as List;
+        return items
+            .where((item) => item['type'] == 'stream' && item['url'] != null)
+            .map<MediaItem?>((item) {
+              final url = item['url'] as String;
+              final videoId =
+                  url.contains('?v=') ? url.split('?v=').last : null;
+              if (videoId == null || videoId.isEmpty) return null;
+              final artistName = (item['uploaderName'] as String?) ?? 'Unknown';
+              return MediaItem(
+                id: videoId,
+                title: (item['title'] as String?) ?? '',
+                artist: artistName,
+                duration: Duration(seconds: (item['duration'] as int?) ?? 0),
+                artUri: Uri.tryParse((item['thumbnail'] as String?) ?? ''),
+                extras: {
+                  'artists': [
+                    {'name': artistName, 'id': null}
+                  ],
+                  'resultType': filter == 'music_videos' ? 'video' : 'song',
+                },
+              );
+            })
+            .whereType<MediaItem>()
+            .toList();
+      }
+    } on DioException catch (e) {
+      printERROR("Piped search error: ${e.message}");
+    }
+    return [];
+  }
 }
 
 class Res {

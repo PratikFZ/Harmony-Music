@@ -31,7 +31,7 @@ class ImageWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     String imageUrl = song != null
-        ? song!.artUri.toString()
+        ? song!.artUri?.toString() ?? ""
         : playlist != null
             ? playlist!.thumbnailUrl
             : album != null

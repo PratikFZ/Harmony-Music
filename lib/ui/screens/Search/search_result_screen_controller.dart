@@ -5,6 +5,7 @@ import 'package:harmonymusic/ui/screens/Settings/settings_screen_controller.dart
 import '../../../utils/helper.dart';
 import '../Home/home_screen_controller.dart';
 import '/services/music_service.dart';
+import '/services/piped_service.dart';
 import '/ui/widgets/sort_widget.dart';
 
 class SearchResultScreenController extends GetxController
@@ -15,6 +16,7 @@ class SearchResultScreenController extends GetxController
   final resultContent = <String, dynamic>{}.obs;
   final separatedResultContent = <String, dynamic>{}.obs;
   final musicServices = Get.find<MusicServices>();
+  final pipedServices = Get.find<PipedServices>();
   final queryString = ''.obs;
   final railItems = <String>[].obs;
   final railitemHeight = Get.size.height.obs;
@@ -53,15 +55,31 @@ class SearchResultScreenController extends GetxController
       final tabName = railItems[value - 1];
       final itemCount = (tabName == 'Songs' || tabName == 'Videos') ? 25 : 10;
       final x = await musicServices.search(queryString.value,
-          filter: tabName.replaceAll(" ", "_").toLowerCase(), limit: itemCount, filterParams: resultContent['searchEndpoint'][tabName]);
-      separatedResultContent[tabName] = x[tabName];
+          filter: tabName.replaceAll(" ", "_").toLowerCase(),
+          limit: itemCount,
+          filterParams: resultContent['searchEndpoint'][tabName]);
+      separatedResultContent[tabName] = x[tabName] ?? [];
       additionalParamNext[tabName] = x['params'];
+
+      // Fallback to Piped search when YouTube Music returns no results for Songs/Videos
+      if ((separatedResultContent[tabName] as List).isEmpty &&
+          (tabName == 'Songs' || tabName == 'Videos')) {
+        final pipedFilter =
+            tabName == 'Videos' ? 'music_videos' : 'music_songs';
+        final pipedResults = await pipedServices.searchSongs(queryString.value,
+            filter: pipedFilter);
+        if (pipedResults.isNotEmpty) {
+          separatedResultContent[tabName] = pipedResults;
+        }
+      }
+
       isSeparatedResultContentFetced.value = true;
       final scrollController = scrollControllers[tabName];
       (scrollController)!.addListener(() {
         double maxScroll = scrollController.position.maxScrollExtent;
         double currentScroll = scrollController.position.pixels;
         if (currentScroll >= maxScroll / 2 &&
+            additionalParamNext[tabName] != null &&
             additionalParamNext[tabName]['additionalParams'] !=
                 '&ctoken=null&continuation=null') {
           if (!continuationInProgress) {
@@ -77,6 +95,10 @@ class SearchResultScreenController extends GetxController
 
   Future<void> getContinuationContents() async {
     final tabName = railItems[navigationRailCurrentIndex.value - 1];
+    if (additionalParamNext[tabName] == null) {
+      continuationInProgress = false;
+      return;
+    }
 
     final x =
         await musicServices.getSearchContinuation(additionalParamNext[tabName]);

@@ -45,7 +45,10 @@ class MusicServices extends getx.GetxService {
     super.onInit();
   }
 
-  final dio = Dio();
+  final dio = Dio(BaseOptions(
+    connectTimeout: const Duration(seconds: 10),
+    receiveTimeout: const Duration(seconds: 15),
+  ));
 
   Future<void> init() async {
     //check visitor id in data base, if not generate one , set lang code
@@ -109,7 +112,7 @@ class MusicServices extends getx.GetxService {
   }
 
   Future<Response> _sendRequest(String action, Map<dynamic, dynamic> data,
-      {additionalParams = ""}) async {
+      {additionalParams = "", int retryCount = 0}) async {
     //print("$baseUrl$action$fixedParms$additionalParams          data:$data");
     try {
       final response =
@@ -122,9 +125,16 @@ class MusicServices extends getx.GetxService {
       if (response.statusCode == 200) {
         return response;
       } else {
-        return _sendRequest(action, data, additionalParams: additionalParams);
+        return _sendRequest(action, data,
+            additionalParams: additionalParams, retryCount: retryCount);
       }
     } on DioException catch (e) {
+      if (retryCount < 2) {
+        printINFO("Request failed (attempt ${retryCount + 1}), retrying... $e");
+        await Future.delayed(Duration(seconds: (retryCount + 1) * 2));
+        return _sendRequest(action, data,
+            additionalParams: additionalParams, retryCount: retryCount + 1);
+      }
       printINFO("Error $e");
       throw NetworkError();
     }
@@ -648,6 +658,14 @@ class MusicServices extends getx.GetxService {
           !searchResults.containsKey("Featured playlists")) {
         searchResults["Featured playlists"] = [];
       }
+
+      // Ensure Songs, Videos, Albums, Artists tabs always appear when available in chips
+      for (final category in ["Songs", "Videos", "Albums", "Artists"]) {
+        if ((searchResults['searchEndpoint']).containsKey(category) &&
+            !searchResults.containsKey(category)) {
+          searchResults[category] = [];
+        }
+      }
     }
 
     /// End Search Chips
@@ -670,9 +688,13 @@ class MusicServices extends getx.GetxService {
             ['artist', 'playlist', 'song', 'video', 'station'], type, category);
         if (filter == null) {
           for (var item in mixedItems) {
-            final itemType = item.runtimeType == MediaItem
-                ? (item.artist.split(",")[0]) + "s"
-                : "${item.runtimeType}s";
+            final String itemType;
+            if (item is MediaItem) {
+              final rt = item.extras?['resultType'];
+              itemType = (rt == 'song') ? 'Songs' : 'Videos';
+            } else {
+              itemType = "${item.runtimeType}s";
+            }
             if (searchResults.containsKey(itemType) &&
                 (searchResults[itemType]).length < 3) {
               (searchResults[itemType] as List).add(item);

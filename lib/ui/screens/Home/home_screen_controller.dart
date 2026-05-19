@@ -151,11 +151,20 @@ class HomeScreenController extends GetxController {
       }
 
       if (quickPicks.value.songList.isEmpty) {
-        final index = homeContentListMap
+        // First try to find a section titled "Quick picks"
+        int index = homeContentListMap
             .indexWhere((element) => element['title'] == "Quick picks");
-        final con = homeContentListMap.removeAt(index);
-        quickPicks.value = QuickPicks(List<MediaItem>.from(con["contents"]),
-            title: "Quick picks");
+        // If not found, fall back to the first section that contains songs (MediaItem)
+        if (index == -1) {
+          index = homeContentListMap.indexWhere((element) =>
+              (element['contents'] as List).isNotEmpty &&
+              element['contents'][0] is MediaItem);
+        }
+        if (index != -1) {
+          final con = homeContentListMap.removeAt(index);
+          quickPicks.value = QuickPicks(List<MediaItem>.from(con["contents"]),
+              title: con["title"] ?? "Quick picks");
+        }
       }
 
       middleContent.value = _setContentList(middleContentTemp);
@@ -180,7 +189,7 @@ class HomeScreenController extends GetxController {
   ) {
     List contentTemp = [];
     for (var content in contents) {
-      if((content["contents"]).isEmpty) continue;
+      if ((content["contents"]).isEmpty) continue;
       if ((content["contents"][0]).runtimeType == Playlist) {
         final tmp = PlaylistContent(
             playlistList: (content["contents"]).whereType<Playlist>().toList(),
@@ -204,9 +213,14 @@ class HomeScreenController extends GetxController {
     QuickPicks? quickPicks_;
     if (val == 'QP') {
       final homeContentListMap = await _musicServices.getHome(limit: 3);
-      quickPicks_ = QuickPicks(
-          List<MediaItem>.from(homeContentListMap[0]["contents"]),
-          title: homeContentListMap[0]["title"]);
+      final idx = homeContentListMap.indexWhere((element) =>
+          (element['contents'] as List).isNotEmpty &&
+          element['contents'][0] is MediaItem);
+      if (idx != -1) {
+        quickPicks_ = QuickPicks(
+            List<MediaItem>.from(homeContentListMap[idx]["contents"]),
+            title: homeContentListMap[idx]["title"]);
+      }
     } else if (val == "TMV" || val == 'TR') {
       try {
         final charts = await _musicServices.getCharts(val);

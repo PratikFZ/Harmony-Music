@@ -17,6 +17,11 @@ import '../../widgets/quickpickswidget.dart';
 import '../../widgets/shimmer_widgets/home_shimmer.dart';
 import 'home_screen_controller.dart';
 import '../Settings/settings_screen.dart';
+import '../JamSession/jam_session_controller.dart';
+import '../JamSession/jam_session_host_screen.dart';
+import '../JamSession/jam_session_join_screen.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../JamSession/qr_scanner_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -42,34 +47,67 @@ class HomeScreen extends StatelessWidget {
                             ? playerController.playerPanelMinHeight.value -
                                 Get.mediaQuery.padding.bottom
                             : playerController.playerPanelMinHeight.value),
-                    child: SizedBox(
-                      height: 60,
-                      width: 60,
-                      child: FittedBox(
-                        child: FloatingActionButton(
-                            focusElevation: 0,
-                            shape: const RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.all(Radius.circular(14))),
-                            elevation: 0,
-                            onPressed: () async {
-                              if (homeScreenController.tabIndex.value == 2) {
-                                showDialog(
-                                    context: context,
-                                    builder: (context) =>
-                                        const CreateNRenamePlaylistPopup());
-                              } else {
-                                Get.toNamed(ScreenNavigationSetup.searchScreen,
-                                    id: ScreenNavigationSetup.id);
-                              }
-                              // file:///data/user/0/com.example.harmonymusic/cache/libCachedImageData/
-                              //file:///data/user/0/com.example.harmonymusic/cache/just_audio_cache/
-                            },
-                            child: Icon(homeScreenController.tabIndex.value == 2
-                                ? Icons.add
-                                : Icons.search)),
-                      ),
-                    ),
+                    child: homeScreenController.tabIndex.value == 0
+                        // Home tab: Jam FAB stacked above Search FAB
+                        ? Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                height: 50,
+                                width: 50,
+                                child: FittedBox(
+                                  child: FloatingActionButton.small(
+                                    heroTag: 'jam_fab',
+                                    focusElevation: 0,
+                                    elevation: 0,
+                                    shape: const RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.all(
+                                            Radius.circular(12))),
+                                    onPressed: () => _showJamSheet(context),
+                                    child: const Icon(Icons.people),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                height: 60,
+                                width: 60,
+                                child: FittedBox(
+                                  child: FloatingActionButton(
+                                    heroTag: 'search_fab',
+                                    focusElevation: 0,
+                                    elevation: 0,
+                                    shape: const RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.all(
+                                            Radius.circular(14))),
+                                    onPressed: () => Get.toNamed(
+                                        ScreenNavigationSetup.searchScreen,
+                                        id: ScreenNavigationSetup.id),
+                                    child: const Icon(Icons.search),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        // Library tab: just the add-playlist FAB
+                        : SizedBox(
+                            height: 60,
+                            width: 60,
+                            child: FittedBox(
+                              child: FloatingActionButton(
+                                  heroTag: 'add_fab',
+                                  focusElevation: 0,
+                                  shape: const RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.all(
+                                          Radius.circular(14))),
+                                  elevation: 0,
+                                  onPressed: () => showDialog(
+                                      context: context,
+                                      builder: (context) =>
+                                          const CreateNRenamePlaylistPopup()),
+                                  child: const Icon(Icons.add)),
+                            ),
+                          ),
                   ),
                 )
               : const SizedBox.shrink(),
@@ -100,6 +138,69 @@ class HomeScreen extends StatelessWidget {
           ),
         ));
   }
+}
+
+void _showJamSheet(BuildContext context) {
+  Get.bottomSheet(
+    Container(
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Jam Session', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            'Listen to the same music in sync — no server needed.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 20),
+          ListTile(
+            leading:
+                const CircleAvatar(child: Icon(Icons.broadcast_on_personal)),
+            title: const Text('Start a session'),
+            subtitle: const Text('Share a QR with friends'),
+            onTap: () {
+              Get.back();
+              Get.to(() => const JamSessionHostScreen());
+            },
+          ),
+          ListTile(
+            leading: const CircleAvatar(child: Icon(Icons.qr_code_scanner)),
+            title: const Text('Join a session'),
+            subtitle: const Text("Scan the host's QR code"),
+            onTap: () async {
+              Get.back();
+              final status = await Permission.camera.request();
+              if (!status.isGranted) {
+                Get.snackbar('Camera required',
+                    'Grant camera permission to scan QR codes.',
+                    snackPosition: SnackPosition.BOTTOM);
+                return;
+              }
+              // Scan host QR first, then open the join screen which processes it
+              final result =
+                  await Get.to<String>(() => const QrScannerScreen());
+              if (result != null && result.isNotEmpty) {
+                // Navigate to join screen first, then call joinSession so the
+                // screen's GetBuilder can react to state changes.
+                Get.to(() => const JamSessionJoinScreen());
+                final ctrl = Get.isRegistered<JamSessionController>()
+                    ? Get.find<JamSessionController>()
+                    : Get.put(JamSessionController());
+                ctrl.joinSession(result);
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
 }
 
 class Body extends StatelessWidget {
