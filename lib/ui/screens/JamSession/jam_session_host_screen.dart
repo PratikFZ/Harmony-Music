@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
+import 'jam_peer_roster.dart';
 import 'jam_session_controller.dart';
-import 'qr_scanner_screen.dart';
 
 class JamSessionHostScreen extends StatefulWidget {
   const JamSessionHostScreen({super.key});
@@ -15,14 +16,16 @@ class JamSessionHostScreen extends StatefulWidget {
 
 class _JamSessionHostScreenState extends State<JamSessionHostScreen> {
   late final JamSessionController _ctrl;
+  int _selectedIpIndex = 0;
 
   @override
   void initState() {
     super.initState();
     _ctrl = Get.isRegistered<JamSessionController>()
         ? Get.find<JamSessionController>()
-        : Get.put(JamSessionController());
-    // Start ICE gathering right away
+        // permanent: true → controller survives screen pop, so the WebSocket
+        // server / connection stays alive when you back out of the screen.
+        : Get.put(JamSessionController(), permanent: true);
     WidgetsBinding.instance.addPostFrameCallback((_) => _ctrl.startHosting());
   }
 
@@ -30,10 +33,11 @@ class _JamSessionHostScreenState extends State<JamSessionHostScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Start Jam Session'),
+        title: const Text('Host Jam Session'),
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: _close,
+          tooltip: 'Leave screen (jam keeps running)',
+          onPressed: _hideScreen,
         ),
       ),
       body: GetBuilder<JamSessionController>(
@@ -44,17 +48,17 @@ class _JamSessionHostScreenState extends State<JamSessionHostScreen> {
 
   Widget _buildBody(BuildContext context, JamSessionController c) {
     switch (c.state.value) {
-      case JamState.preparingOffer:
-        return const _LoadingView(message: 'Preparing jam session…');
+      case JamState.starting:
+        return const _LoadingView(message: 'Starting host…');
 
       case JamState.waitingForPeer:
-        return _WaitingForPeerView(
-          offerQrData: c.offerQrData ?? '',
-          onScanGuest: () => _scanGuestQr(c),
-        );
-
       case JamState.connected:
-        return _ConnectedView(ctrl: c, onEnd: _close);
+        return _HostView(
+          ctrl: c,
+          selectedIpIndex: _selectedIpIndex,
+          onIpChanged: (i) => setState(() => _selectedIpIndex = i),
+          onEnd: _endSession,
+        );
 
       case JamState.error:
         return _ErrorView(
@@ -67,37 +71,191 @@ class _JamSessionHostScreenState extends State<JamSessionHostScreen> {
     }
   }
 
-  Future<void> _scanGuestQr(JamSessionController c) async {
-    final hasPerm = await _requestCamera();
-    if (!hasPerm) return;
-    final result = await Get.to<String>(() => const QrScannerScreen());
-    if (result != null && result.isNotEmpty) {
-      await c.applyGuestAnswer(result);
-    }
-  }
-
-  Future<bool> _requestCamera() async {
-    final status = await Permission.camera.request();
-    if (!status.isGranted) {
+  /// Just pop the screen — the host server keeps running so the user can
+  /// browse and play music while peers stay connected.
+  void _hideScreen() {
+    Get.back();
+    if (_ctrl.state.value == JamState.connected ||
+        _ctrl.state.value == JamState.waitingForPeer) {
       Get.snackbar(
-        'Camera required',
-        'Please grant camera permission to scan QR codes.',
+        'Jam still active',
+        'Tap the people icon in the player to manage or end.',
         snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 3),
       );
-      return false;
     }
-    return true;
   }
 
-  void _close() {
+  /// Explicit "End Session" — tears down the server and disconnects peers.
+  void _endSession() {
     _ctrl.endSession();
     Get.back();
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Private sub-widgets
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Sub-widgets ────────────────────────────────────────────────────────────
+
+class _HostView extends StatelessWidget {
+  final JamSessionController ctrl;
+  final int selectedIpIndex;
+  final ValueChanged<int> onIpChanged;
+  final VoidCallback onEnd;
+
+  const _HostView({
+    required this.ctrl,
+    required this.selectedIpIndex,
+    required this.onIpChanged,
+    required this.onEnd,
+  });
+
+  String _buildUri(String ip, int port) =>
+      '${JamSessionController.scheme}://$ip:$port';
+
+  @override
+  Widget build(BuildContext context) {
+    final ips = ctrl.hostIps;
+    final port = ctrl.hostPort ?? JamSessionController.defaultPort;
+    if (ips.isEmpty) {
+      return _ErrorView(
+        message: 'No LAN interface detected.',
+        onRetry: () => ctrl.startHosting(),
+      );
+    }
+    final idx = selectedIpIndex.clamp(0, ips.length - 1);
+    final ip = ips[idx];
+    final uri = _buildUri(ip, port);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Friends on the same Wi-Fi or Tailscale\nscan this QR to join.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 20),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: QrImageView(
+                data: uri,
+                version: QrVersions.auto,
+                size: 260,
+                errorCorrectionLevel: QrErrorCorrectLevel.M,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          _AddressCard(
+            uri: uri,
+            ip: ip,
+            port: port,
+          ),
+          if (ips.length > 1) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Multiple addresses detected — pick the one your friend can reach:',
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (int i = 0; i < ips.length; i++)
+                  ChoiceChip(
+                    label: Text(ips[i]),
+                    selected: i == idx,
+                    onSelected: (_) => onIpChanged(i),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 12),
+          JamPeerRoster(ctrl: ctrl),
+          const SizedBox(height: 12),
+          const Text(
+            'Play any song and they\'ll hear the same.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.stop),
+            label: const Text('End Session'),
+            onPressed: onEnd,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddressCard extends StatelessWidget {
+  final String uri;
+  final String ip;
+  final int port;
+  const _AddressCard(
+      {required this.uri, required this.ip, required this.port});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$ip : $port',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  uri,
+                  style: Theme.of(context).textTheme.bodySmall,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Copy address',
+            icon: const Icon(Icons.copy),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: uri));
+              Get.snackbar('Copied', uri,
+                  snackPosition: SnackPosition.BOTTOM);
+            },
+          ),
+          IconButton(
+            tooltip: 'Share',
+            icon: const Icon(Icons.share),
+            onPressed: () => Share.share(
+              'Join my Jam: $uri',
+              subject: 'Harmony Jam Session',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _LoadingView extends StatelessWidget {
   final String message;
@@ -112,105 +270,6 @@ class _LoadingView extends StatelessWidget {
           const CircularProgressIndicator(),
           const SizedBox(height: 16),
           Text(message, style: Theme.of(context).textTheme.bodyMedium),
-        ],
-      ),
-    );
-  }
-}
-
-class _WaitingForPeerView extends StatelessWidget {
-  final String offerQrData;
-  final VoidCallback onScanGuest;
-
-  const _WaitingForPeerView({
-    required this.offerQrData,
-    required this.onScanGuest,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          Text(
-            'Step 1 – Let your friend scan this QR',
-            style: Theme.of(context).textTheme.titleMedium,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 20),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: QrImageView(
-                data: offerQrData,
-                version: QrVersions.auto,
-                size: 260,
-                errorCorrectionLevel: QrErrorCorrectLevel.L,
-              ),
-            ),
-          ),
-          const SizedBox(height: 32),
-          const Divider(),
-          const SizedBox(height: 20),
-          Text(
-            'Step 2 – Scan your friend\'s reply QR',
-            style: Theme.of(context).textTheme.titleMedium,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Scan Friend\'s QR'),
-            onPressed: onScanGuest,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConnectedView extends StatelessWidget {
-  final JamSessionController ctrl;
-  final VoidCallback onEnd;
-
-  const _ConnectedView({required this.ctrl, required this.onEnd});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.people,
-              size: 72, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(height: 16),
-          Text('Jam Session Active',
-              style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Obx(() => Text(
-                '${ctrl.connectedPeers.value} listener(s) connected',
-                style: Theme.of(context).textTheme.bodyMedium,
-              )),
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 16),
-          Text(
-            'Your friends are now listening with you!\nPlay any song and they\'ll hear the same.',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 40),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.stop),
-            label: const Text('End Session'),
-            onPressed: onEnd,
-          ),
         ],
       ),
     );

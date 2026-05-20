@@ -20,8 +20,6 @@ import '../Settings/settings_screen.dart';
 import '../JamSession/jam_session_controller.dart';
 import '../JamSession/jam_session_host_screen.dart';
 import '../JamSession/jam_session_join_screen.dart';
-import 'package:permission_handler/permission_handler.dart';
-import '../JamSession/qr_scanner_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -141,6 +139,13 @@ class HomeScreen extends StatelessWidget {
 }
 
 void _showJamSheet(BuildContext context) {
+  final ctrl = Get.isRegistered<JamSessionController>()
+      ? Get.find<JamSessionController>()
+      : null;
+  final hasActive = ctrl != null &&
+      (ctrl.state.value == JamState.connected ||
+          ctrl.state.value == JamState.waitingForPeer);
+
   Get.bottomSheet(
     Container(
       padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
@@ -154,48 +159,64 @@ void _showJamSheet(BuildContext context) {
           Text('Jam Session', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-            'Listen to the same music in sync — no server needed.',
+            hasActive
+                ? (ctrl.role.value == JamRole.host
+                    ? 'You are hosting a Jam.'
+                    : 'You are joined to a Jam.')
+                : 'Listen in sync over your Wi-Fi or Tailscale.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 20),
-          ListTile(
-            leading:
-                const CircleAvatar(child: Icon(Icons.broadcast_on_personal)),
-            title: const Text('Start a session'),
-            subtitle: const Text('Share a QR with friends'),
-            onTap: () {
-              Get.back();
-              Get.to(() => const JamSessionHostScreen());
-            },
-          ),
-          ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.qr_code_scanner)),
-            title: const Text('Join a session'),
-            subtitle: const Text("Scan the host's QR code"),
-            onTap: () async {
-              Get.back();
-              final status = await Permission.camera.request();
-              if (!status.isGranted) {
-                Get.snackbar('Camera required',
-                    'Grant camera permission to scan QR codes.',
-                    snackPosition: SnackPosition.BOTTOM);
-                return;
-              }
-              // Scan host QR first, then open the join screen which processes it
-              final result =
-                  await Get.to<String>(() => const QrScannerScreen());
-              if (result != null && result.isNotEmpty) {
-                // Navigate to join screen first, then call joinSession so the
-                // screen's GetBuilder can react to state changes.
+          if (hasActive) ...[
+            ListTile(
+              leading: CircleAvatar(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  child: const Icon(Icons.open_in_full, color: Colors.white)),
+              title: Text(ctrl.role.value == JamRole.host
+                  ? 'Open host screen'
+                  : 'Open jam screen'),
+              subtitle: const Text('See QR / status'),
+              onTap: () {
+                Get.back();
+                Get.to(() => ctrl.role.value == JamRole.host
+                    ? const JamSessionHostScreen()
+                    : const JamSessionJoinScreen());
+              },
+            ),
+            ListTile(
+              leading:
+                  const CircleAvatar(child: Icon(Icons.stop_circle_outlined)),
+              title: Text(ctrl.role.value == JamRole.host
+                  ? 'End session'
+                  : 'Leave session'),
+              subtitle: const Text('Stop syncing'),
+              onTap: () {
+                Get.back();
+                ctrl.endSession();
+              },
+            ),
+          ] else ...[
+            ListTile(
+              leading:
+                  const CircleAvatar(child: Icon(Icons.broadcast_on_personal)),
+              title: const Text('Start a session'),
+              subtitle: const Text('Share a QR with friends'),
+              onTap: () {
+                Get.back();
+                Get.to(() => const JamSessionHostScreen());
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.qr_code_scanner)),
+              title: const Text('Join a session'),
+              subtitle: const Text("Scan the host's QR code"),
+              onTap: () {
+                Get.back();
                 Get.to(() => const JamSessionJoinScreen());
-                final ctrl = Get.isRegistered<JamSessionController>()
-                    ? Get.find<JamSessionController>()
-                    : Get.put(JamSessionController());
-                ctrl.joinSession(result);
-              }
-            },
-          ),
+              },
+            ),
+          ],
           const SizedBox(height: 8),
         ],
       ),

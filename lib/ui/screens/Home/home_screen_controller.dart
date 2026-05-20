@@ -167,6 +167,24 @@ class HomeScreenController extends GetxController {
         }
       }
 
+      // Last-resort fallback so the Discover section is never empty: if the
+      // home payload had no song sections at all, pull from the Trending chart.
+      if (quickPicks.value.songList.isEmpty) {
+        try {
+          final charts = await _musicServices.getCharts('TR');
+          final trIdx = charts.indexWhere((element) =>
+              (element['contents'] as List).isNotEmpty &&
+              element['contents'][0] is MediaItem);
+          if (trIdx != -1) {
+            quickPicks.value = QuickPicks(
+                List<MediaItem>.from(charts[trIdx]['contents']),
+                title: charts[trIdx]['title'] ?? 'Trending');
+          }
+        } catch (e) {
+          printERROR('Trending fallback also failed: $e');
+        }
+      }
+
       middleContent.value = _setContentList(middleContentTemp);
       fixedContent.value = _setContentList(homeContentListMap);
 

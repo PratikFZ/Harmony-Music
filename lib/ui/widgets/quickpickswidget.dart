@@ -15,6 +15,12 @@ class QuickPicksWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Skip rendering entirely when there are no songs to show — otherwise
+    // we reserve 340 px of empty space at the top of Home, which the user
+    // perceives as "the Discover section is gone."
+    if (content.songList.isEmpty) {
+      return const SizedBox.shrink();
+    }
     final PlayerController playerController = Get.find<PlayerController>();
     return SizedBox(
       height: 340,

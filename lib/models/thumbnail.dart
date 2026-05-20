@@ -16,4 +16,12 @@ class Thumbnail {
   String get low => sizewith(150);
   String get extraHigh =>
       GetPlatform.isDesktop ? sizewith(1000) : sizewith(600); //150
+
+  static String safeThumb(dynamic raw) {
+    if (raw is List && raw.isNotEmpty) {
+      final url = raw[0] is Map ? raw[0]['url'] : null;
+      if (url is String && url.isNotEmpty) return Thumbnail(url).high;
+    }
+    return '';
+  }
 }

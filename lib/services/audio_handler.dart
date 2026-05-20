@@ -576,6 +576,14 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         await _player.setSkipSilenceEnabled(enable);
         break;
 
+      case 'jamSetSpeed':
+        // Used by the Jam Session guest to micro-adjust playback rate for
+        // drift correction. Caller is responsible for restoring 1.0 when
+        // the session ends.
+        final value = (extras!['value'] as num).toDouble();
+        await _player.setSpeed(value);
+        break;
+
       case 'toggleLoudnessNormalization':
         loudnessNormalizationEnabled = (extras!['enable'] as bool);
         if (!loudnessNormalizationEnabled) {

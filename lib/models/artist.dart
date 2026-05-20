@@ -22,7 +22,7 @@ class Artist {
           : (json['subscribers']).runtimeType.toString() == "String"
               ? json['subscribers']
               : json['subscribers']['text'],
-      thumbnailUrl: Thumbnail(json["thumbnails"][0]["url"]).high);
+      thumbnailUrl: Thumbnail.safeThumb(json["thumbnails"]));
 
   Map<String, dynamic> toJson() => {
         'artist': name,

@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
+import 'jam_peer_roster.dart';
 import 'jam_session_controller.dart';
 import 'qr_scanner_screen.dart';
 
 class JamSessionJoinScreen extends StatefulWidget {
-  const JamSessionJoinScreen({super.key});
+  /// Optional pre-scanned host URI. When non-null the screen jumps straight
+  /// into `joinSession`.
+  final String? prescannedUri;
+  const JamSessionJoinScreen({super.key, this.prescannedUri});
 
   @override
   State<JamSessionJoinScreen> createState() => _JamSessionJoinScreenState();
@@ -15,13 +18,27 @@ class JamSessionJoinScreen extends StatefulWidget {
 
 class _JamSessionJoinScreenState extends State<JamSessionJoinScreen> {
   late final JamSessionController _ctrl;
+  final _manualAddressCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _ctrl = Get.isRegistered<JamSessionController>()
         ? Get.find<JamSessionController>()
-        : Get.put(JamSessionController());
+        // permanent: true → controller survives screen pop, so the WebSocket
+        // connection stays alive when you back out of the screen.
+        : Get.put(JamSessionController(), permanent: true);
+    if (widget.prescannedUri != null && widget.prescannedUri!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _ctrl.joinSession(widget.prescannedUri!),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _manualAddressCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -31,7 +48,8 @@ class _JamSessionJoinScreenState extends State<JamSessionJoinScreen> {
         title: const Text('Join Jam Session'),
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: _close,
+          tooltip: 'Leave screen (stay connected)',
+          onPressed: _hideScreen,
         ),
       ),
       body: GetBuilder<JamSessionController>(
@@ -43,16 +61,25 @@ class _JamSessionJoinScreenState extends State<JamSessionJoinScreen> {
   Widget _buildBody(BuildContext context, JamSessionController c) {
     switch (c.state.value) {
       case JamState.idle:
-        return _IdleView(onScan: _openScanner);
+        return _IdleView(
+          onScan: _openScanner,
+          manualCtrl: _manualAddressCtrl,
+          onManualConnect: _connectManual,
+        );
 
-      case JamState.preparingOffer:
-        return const _LoadingView(message: 'Creating answer…');
-
-      case JamState.waitingForPeer:
-        return _ShowAnswerQrView(answerQrData: c.answerQrData ?? '');
+      case JamState.starting:
+        return const _LoadingView(message: 'Connecting…');
 
       case JamState.connected:
-        return _ListeningView(ctrl: c, onLeave: _close);
+        return _ListeningView(ctrl: c, onLeave: _leaveSession);
+
+      case JamState.waitingForPeer:
+        // Guest never enters this state on its own; treat as idle.
+        return _IdleView(
+          onScan: _openScanner,
+          manualCtrl: _manualAddressCtrl,
+          onManualConnect: _connectManual,
+        );
 
       case JamState.error:
         return _ErrorView(
@@ -70,7 +97,7 @@ class _JamSessionJoinScreenState extends State<JamSessionJoinScreen> {
     if (!status.isGranted) {
       Get.snackbar(
         'Camera required',
-        'Grant camera permission to join a jam session.',
+        'Grant camera permission to scan the host\'s QR.',
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
@@ -81,46 +108,121 @@ class _JamSessionJoinScreenState extends State<JamSessionJoinScreen> {
     }
   }
 
-  void _close() {
+  Future<void> _connectManual() async {
+    final text = _manualAddressCtrl.text.trim();
+    if (text.isEmpty) {
+      Get.snackbar('Enter an address',
+          'Type the host\'s IP — e.g. 192.168.1.5:${JamSessionController.defaultPort}',
+          snackPosition: SnackPosition.BOTTOM);
+      return;
+    }
+    await _ctrl.joinSession(text);
+  }
+
+  /// Just pop the screen; if a session is connected it stays alive so the
+  /// guest keeps mirroring the host while browsing the app.
+  void _hideScreen() {
+    Get.back();
+    if (_ctrl.state.value == JamState.connected) {
+      Get.snackbar(
+        'Still in Jam',
+        'Mirroring host. Tap the people icon in the player to leave.',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 3),
+      );
+    }
+  }
+
+  /// Explicit "Leave Session" — disconnects the WebSocket and goes back.
+  void _leaveSession() {
     _ctrl.endSession();
     Get.back();
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Sub-widgets ────────────────────────────────────────────────────────────
 
 class _IdleView extends StatelessWidget {
   final VoidCallback onScan;
-  const _IdleView({required this.onScan});
+  final TextEditingController manualCtrl;
+  final VoidCallback onManualConnect;
+
+  const _IdleView({
+    required this.onScan,
+    required this.manualCtrl,
+    required this.onManualConnect,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.qr_code_scanner,
-                size: 80,
-                color: Theme.of(context)
-                    .colorScheme
-                    .primary
-                    .withValues(alpha: 0.7)),
-            const SizedBox(height: 24),
-            Text(
-              'Scan the host\'s QR code to join their session',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 12),
+          Icon(
+            Icons.qr_code_scanner,
+            size: 80,
+            color: Theme.of(context)
+                .colorScheme
+                .primary
+                .withOpacity(0.7),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Scan the host\'s QR code to join.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.camera_alt),
+            label: const Text('Open Camera'),
+            onPressed: onScan,
+          ),
+          const SizedBox(height: 32),
+          Row(
+            children: const [
+              Expanded(child: Divider()),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('or'),
+              ),
+              Expanded(child: Divider()),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Type the host address',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: manualCtrl,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: InputDecoration(
+              hintText:
+                  'e.g. 192.168.1.5:${JamSessionController.defaultPort}',
+              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.dns),
             ),
-            const SizedBox(height: 32),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.camera_alt),
-              label: const Text('Open Camera'),
-              onPressed: onScan,
-            ),
-          ],
-        ),
+            onSubmitted: (_) => onManualConnect(),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.link),
+            label: const Text('Connect'),
+            onPressed: onManualConnect,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Both devices must be on the same Wi-Fi or Tailscale tailnet.',
+            style: Theme.of(context).textTheme.bodySmall,
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
@@ -145,49 +247,6 @@ class _LoadingView extends StatelessWidget {
   }
 }
 
-class _ShowAnswerQrView extends StatelessWidget {
-  final String answerQrData;
-  const _ShowAnswerQrView({required this.answerQrData});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          Text(
-            'Show this QR to the host',
-            style: Theme.of(context).textTheme.titleMedium,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 20),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: QrImageView(
-                data: answerQrData,
-                version: QrVersions.auto,
-                size: 260,
-                errorCorrectionLevel: QrErrorCorrectLevel.L,
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'Once the host scans this, playback will sync automatically.',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ListeningView extends StatelessWidget {
   final JamSessionController ctrl;
   final VoidCallback onLeave;
@@ -196,16 +255,21 @@ class _ListeningView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SizedBox(height: 8),
           Icon(Icons.headphones,
               size: 72, color: Theme.of(context).colorScheme.primary),
           const SizedBox(height: 16),
-          Text('Joined Jam Session',
-              style: Theme.of(context).textTheme.headlineSmall),
+          Text(
+            'Joined Jam Session',
+            style: Theme.of(context).textTheme.headlineSmall,
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 8),
           Obx(() => Text(
                 ctrl.syncStatus.value,
@@ -214,18 +278,20 @@ class _ListeningView extends StatelessWidget {
               )),
           const SizedBox(height: 24),
           const Divider(),
+          const SizedBox(height: 12),
+          JamPeerRoster(ctrl: ctrl),
           const SizedBox(height: 16),
-          Text(
-            'You\'re in sync with the host.\nSit back and enjoy the music!',
+          const Text(
+            'Mirroring the host\'s playback.\nSit back and enjoy.',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium,
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: 32),
           OutlinedButton.icon(
             icon: const Icon(Icons.exit_to_app),
             label: const Text('Leave Session'),
             onPressed: onLeave,
           ),
+          const SizedBox(height: 16),
         ],
       ),
     );

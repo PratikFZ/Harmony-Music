@@ -161,23 +161,44 @@ class PlayerControlWidget extends StatelessWidget {
   }
 
   Widget _jamButton(BuildContext context) {
-    final ctrl = Get.isRegistered<JamSessionController>()
-        ? Get.find<JamSessionController>()
-        : null;
-    final isActive = ctrl != null && ctrl.state.value == JamState.connected;
-    return IconButton(
-      icon: Icon(
-        Icons.people,
-        color: isActive
-            ? Theme.of(context).colorScheme.primary
-            : Theme.of(context).textTheme.titleMedium!.color,
-      ),
-      tooltip: 'Jam Session',
-      onPressed: () => _showJamSheet(context),
-    );
+    // Only wrap in Obx when the controller exists — otherwise Obx has no
+    // reactive value to track and throws "improper use of GetX detected".
+    if (!Get.isRegistered<JamSessionController>()) {
+      return IconButton(
+        icon: Icon(
+          Icons.people,
+          color: Theme.of(context).textTheme.titleMedium!.color,
+        ),
+        tooltip: 'Jam Session',
+        onPressed: () => _showJamSheet(context),
+      );
+    }
+    final ctrl = Get.find<JamSessionController>();
+    return Obx(() {
+      final state = ctrl.state.value;
+      final isActive =
+          state == JamState.connected || state == JamState.waitingForPeer;
+      return IconButton(
+        icon: Icon(
+          Icons.people,
+          color: isActive
+              ? Theme.of(context).colorScheme.primary
+              : Theme.of(context).textTheme.titleMedium!.color,
+        ),
+        tooltip: isActive ? 'Jam Session (active)' : 'Jam Session',
+        onPressed: () => _showJamSheet(context),
+      );
+    });
   }
 
   void _showJamSheet(BuildContext context) {
+    final ctrl = Get.isRegistered<JamSessionController>()
+        ? Get.find<JamSessionController>()
+        : null;
+    final hasActive = ctrl != null &&
+        (ctrl.state.value == JamState.connected ||
+            ctrl.state.value == JamState.waitingForPeer);
+
     Get.bottomSheet(
       Container(
         padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
@@ -191,30 +212,65 @@ class PlayerControlWidget extends StatelessWidget {
             Text('Jam Session', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              'Listen to the same music in sync — no server needed.',
+              hasActive
+                  ? (ctrl.role.value == JamRole.host
+                      ? 'You are hosting a Jam.'
+                      : 'You are joined to a Jam.')
+                  : 'Listen in sync over your Wi-Fi or Tailscale.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 24),
-            ListTile(
-              leading:
-                  const CircleAvatar(child: Icon(Icons.broadcast_on_personal)),
-              title: const Text('Start a session'),
-              subtitle: const Text('Share a QR code with friends'),
-              onTap: () {
-                Get.back();
-                Get.to(() => const JamSessionHostScreen());
-              },
-            ),
-            ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.qr_code_scanner)),
-              title: const Text('Join a session'),
-              subtitle: const Text('Scan the host\'s QR code'),
-              onTap: () {
-                Get.back();
-                Get.to(() => const JamSessionJoinScreen());
-              },
-            ),
+            if (hasActive) ...[
+              ListTile(
+                leading: CircleAvatar(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    child: const Icon(Icons.open_in_full, color: Colors.white)),
+                title: Text(ctrl.role.value == JamRole.host
+                    ? 'Open host screen'
+                    : 'Open jam screen'),
+                subtitle: const Text('See QR / status'),
+                onTap: () {
+                  Get.back();
+                  Get.to(() => ctrl.role.value == JamRole.host
+                      ? const JamSessionHostScreen()
+                      : const JamSessionJoinScreen());
+                },
+              ),
+              ListTile(
+                leading:
+                    const CircleAvatar(child: Icon(Icons.stop_circle_outlined)),
+                title: Text(ctrl.role.value == JamRole.host
+                    ? 'End session'
+                    : 'Leave session'),
+                subtitle: const Text('Stop syncing'),
+                onTap: () {
+                  Get.back();
+                  ctrl.endSession();
+                },
+              ),
+            ] else ...[
+              ListTile(
+                leading: const CircleAvatar(
+                    child: Icon(Icons.broadcast_on_personal)),
+                title: const Text('Start a session'),
+                subtitle: const Text('Share a QR code with friends'),
+                onTap: () {
+                  Get.back();
+                  Get.to(() => const JamSessionHostScreen());
+                },
+              ),
+              ListTile(
+                leading:
+                    const CircleAvatar(child: Icon(Icons.qr_code_scanner)),
+                title: const Text('Join a session'),
+                subtitle: const Text('Scan the host\'s QR code'),
+                onTap: () {
+                  Get.back();
+                  Get.to(() => const JamSessionJoinScreen());
+                },
+              ),
+            ],
             const SizedBox(height: 8),
           ],
         ),

@@ -26,7 +26,7 @@ class MediaItemBuilder {
             : toDuration(json['length']),
         album: album != null ? album['name'] : null,
         artist: artistName,
-        artUri: Uri.parse(Thumbnail(json["thumbnails"][0]['url']).high),
+        artUri: Uri.parse(_resolveThumbnailUrl(json)),
         extras: {
           'url': json['url'] ?? url,
           'length': json['length'],
@@ -37,6 +37,24 @@ class MediaItemBuilder {
           'year': json['year'],
           'resultType': json['resultType'],
         });
+  }
+
+  /// Picks the best available thumbnail URL.
+  /// Falls back to the YouTube CDN if the API response is missing one
+  /// (some search-result parser paths return null thumbnails).
+  static String _resolveThumbnailUrl(dynamic json) {
+    final raw = json["thumbnails"];
+    if (raw is List && raw.isNotEmpty) {
+      final url = raw[0] is Map ? raw[0]['url'] : null;
+      if (url is String && url.isNotEmpty) {
+        return Thumbnail(url).high;
+      }
+    }
+    final videoId = json['videoId'];
+    if (videoId is String && videoId.isNotEmpty) {
+      return 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg';
+    }
+    return '';
   }
 
   static Duration? toDuration(String? time) {
